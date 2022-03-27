@@ -1,9 +1,10 @@
 package hk.ust.comp4651;
 
 import java.io.IOException;
-import java.util.Iterator;
 import java.util.Arrays;
+import java.util.Iterator;
 import java.util.Map;
+import java.util.Map.Entry;
 
 import org.apache.commons.cli.CommandLine;
 import org.apache.commons.cli.CommandLineParser;
@@ -35,8 +36,7 @@ import org.apache.log4j.Logger;
 public class BigramFrequencyStripes extends Configured implements Tool {
 	private static final Logger LOG = Logger
 			.getLogger(BigramFrequencyStripes.class);
-	private static final IntWritable MARGINAL = new IntWritable();
-	
+
 	/*
 	 * Mapper: emits <word, stripe> where stripe is a hash map
 	 */
@@ -56,20 +56,27 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here.
 			 */
-			for (int i = 0; i < words.length - 1; i++){
-				// skip empty words
-				if (words[i].length() == 0)
-					continue;
-				
-				STRIPE.clear();
-				
-				STRIPE.increment(words[i+1]);
-				KEY.set(words[i]);
-				context.write(KEY, STRIPE);
-				// emit extra content for marginal count
-				STRIPE.clear();
-				STRIPE.increment("");
-				context.write(KEY, STRIPE);
+			if (words.length > 1){
+				KEY.set( words[0]); //key = the first word
+				for (int i = 1; i < words.length; i++) {
+					String w = words[i]; // loop for every next word
+					// Skip empty words
+					if (w.length() == 0) {
+						continue;
+					}
+					STRIPE.increment(w); //count of w ++
+					context.write(KEY, STRIPE);
+					
+					STRIPE.clear();
+					STRIPE.increment("");
+					context.write(KEY, STRIPE); //emit(term key, stripe)
+					
+					
+					KEY.set(w); //key= next word
+					STRIPE.clear(); //new associative array
+					
+					
+				}
 			}
 		}
 	}
@@ -84,6 +91,7 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 		private final static HashMapStringIntWritable SUM_STRIPES = new HashMapStringIntWritable();
 		private final static PairOfStrings BIGRAM = new PairOfStrings();
 		private final static FloatWritable FREQ = new FloatWritable();
+		private final static FloatWritable MARG = new FloatWritable();
 
 		@Override
 		public void reduce(Text key,
@@ -92,26 +100,30 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			/*
 			 * TODO: Your implementation goes here
 			 */
-			
 			Iterator<HashMapStringIntWritable> iter = stripes.iterator();
-			
-			while(iter.hasNext())
+			String first_w = key.toString();
+			while (iter.hasNext()) {
 				SUM_STRIPES.plus(iter.next());
-			
-			for (String str : SUM_STRIPES.keySet()){
-				BIGRAM.set(key.toString(), str);
-				
-				if (str.equals("")){
-					MARGINAL.set(SUM_STRIPES.get(str));
-					FREQ.set(MARGINAL.get());
-					context.write(BIGRAM, FREQ);
-				} else {					
-					FREQ.set(SUM_STRIPES.get(str) / (float) MARGINAL.get());
-					context.write(BIGRAM, FREQ);
-				}
 			}
 			
-			SUM_STRIPES.clear();
+	        for (Entry<String, Integer> mapElement : SUM_STRIPES.entrySet()) { 
+	            String second_w = (String) mapElement.getKey(); 
+	            if(second_w.equals("")) {
+		            int value = (int) mapElement.getValue();
+		            BIGRAM.set(first_w, second_w);
+			        FREQ.set(value);
+			        MARG.set(value);
+		            context.write(BIGRAM, FREQ);
+	            }
+	            else {
+		            int value = (int) mapElement.getValue();
+		            BIGRAM.set(first_w, second_w);
+		            FREQ.set(value/MARG.get());
+		            context.write(BIGRAM, FREQ);
+	            }
+	        }
+	        
+	        SUM_STRIPES.clear();
 		}
 	}
 
@@ -132,10 +144,12 @@ public class BigramFrequencyStripes extends Configured implements Tool {
 			 * TODO: Your implementation goes here
 			 */
 			Iterator<HashMapStringIntWritable> iter = stripes.iterator();
-			
-			while(iter.hasNext())
-				SUM_STRIPES.plus(iter.next());
-			
+
+			while (iter.hasNext()) {
+				for ( String second_w : iter.next().keySet() ) {
+					SUM_STRIPES.increment(second_w);
+				}
+			}
 			context.write(key, SUM_STRIPES);
 			SUM_STRIPES.clear();
 		}
